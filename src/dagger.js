@@ -1,26 +1,80 @@
-var Dagger = D = (function() {
-	var Dagger = {
-		Controller: (function() {
-			var controllerPrototype = {
-				// takes a string--'h1 p p'--and turns it into HTML.  TODO -- decide what the template language of DaggerJS will look like.
-				markup: function(markup) {
-					var elements = markup.split(/\s+/g);
-					for (var i = 0; i < elements.length; i++) {
-						this.el.append(Dagger.El(elements[i]));
-					}
-				}
-			};
-
-			return function(selector) {
-				selector = selector || 'body';
-				var Controller = function() {
-					this.el = _isEl(selector) ? selector : Dagger.El(selector, '', true);
-				};
-				Controller.prototype = controllerPrototype;
-				return new Controller();
-			};
-		})(),
+(function() {
+	var Dagger = function() {
+		return this; // for now...
+	};
+	
+	// Expose Dagger to the global object -- `module.exports` in node.js or `window` in a browser
+	if (typeof module === 'object' && typeof module.exports === 'object') {
+		module.exports = Dagger;
+	} else {
+		this.Dagger = this.dg = Dagger;
+	}
+	
+	
+	Dagger.version = 0.1;
+	
+	
+	// = = = = = = = = = = = = = = = =   DaggerJS - Private Members   = = = = = = = = = = = = = = = = //
+	var readyAlready = false;
+	var readyCallbacks = [];
+	var _handleReady = function() {
+		if (document.readyState === 'interactive' || readyAlready) {
+			readyAlready = true;
+			while (readyCallbacks.length) {
+				var nextCallback = readyCallbacks.shift();
+				nextCallback[0](nextCallback[1]);
+			}
+		}
+	};
+	document.onreadystatechange = _handleReady;
+	
+	// = = = = = = = = = = = = = = = =   DaggerJS - Private Helper Functions   = = = = = = = = = = = = = = = = //
+	var _arraysMatch = function(arr1, arr2) {
+		if (arr1.length !== arr2.length) return false;
+		for (var i = 0; i < arr1.length; i++) {
+			if (arr1[i] !== arr2[i]) return false;
+		}
+		return true;
+	};
+	var _objectsMatch = function(obj1, obj2) {
+		return typeof obj1 === 'object' && typeof obj2 === 'object' && _arraysMatch(Object.keys(obj1), Object.keys(obj2));
+	};
+	
+	
+	
+	
+	Dagger.extend = function(sourceObj, targetObj) {
+		if (!targetObj) {
+			return sourceObj;
+		}
+		for (var i = 0; i < Object.keys(targetObj).length; i++) {
+			sourceObj[Object.keys(targetObj)[i]] = targetObj[Object.keys(targetObj)[i]];
+		}
+		return sourceObj;
+	}
+	
+	
+	// add underscoreJS-type data manipulation functions and public DaggerJS helper functions
+	Dagger.extend(Dagger, {
+		// = = = = = = = = = = = = = = = =   DaggerJS - Data Manipulation Functions   = = = = = = = = = = = = = = = = //
 		
+		
+		// = = = = = = = = = = = = = = = =   DaggerJS - Public Helper Functions   = = = = = = = = = = = = = = = = //
+		_isDeferral: function(obj) {
+			return typeof obj === 'object' && _objectsMatch(Object.getPrototypeOf(obj), Dagger.Deferral.prototype);
+		},
+		_isEl: function(obj) {
+			return typeof obj === 'object' && _objectsMatch(Object.getPrototypeOf(obj), Dagger.El.prototype);
+		},
+		_isXMLHttpRequest: function(obj) {
+			return obj instanceof XMLHttpRequest;
+		}
+	});
+	
+	
+	
+	// Dagger.Deferral
+	Dagger.extend(Dagger, {
 		/**
 		 * A Deferral can take an XMLHttp object, another Deferral object, or nothing -- 'ajax', 'deferral', 'empty'.
 		 * The returned Deferral can then be passed any number of chained callbacks (via Deferral.yes(), Deferral.no(), Deferral.both()).
@@ -84,17 +138,15 @@ var Dagger = D = (function() {
 					resolved: false, result: undefined, success: '',
 					noCallbacks: [], bothCallbacks: [], yesCallbacks: []
 				};
-				var resolved = false, success = '', result = undefined;
-				var noCallbacks = [], bothCallbacks = [], yesCallbacks = [];
 				// = = = = = = = = = = = = = = = =   PUBLIC MEMBERS   = = = = = = = = = = = = = = = = //
 				var Deferral = function() {
 					var self = this;
-					if (_isXMLHttpRequest(obj)) {
+					if (Dagger._isXMLHttpRequest(obj)) {
 						obj.onload = function() {
 							self.trigger(this.status === 200 ? 'yes' : 'no', obj.response);
 						};
 						obj.send();
-					} else if (_isDeferral(obj)) {
+					} else if (Dagger._isDeferral(obj)) {
 						obj.yes(function(result) {
 							self.trigger('yes', result);
 						}).no(function(result) {
@@ -107,8 +159,11 @@ var Dagger = D = (function() {
 			};
 			Deferral.prototype = deferralPrototype();
 			return Deferral;
-		})(),
+		})()
+	});
 
+	// Dagger.El
+	Dagger.extend(Dagger, {
 		El: (function() {
 			var elPrototype = {
 				style: { fontFamily: 'arial' },
@@ -189,8 +244,35 @@ var Dagger = D = (function() {
 			};
 			El.prototype = elPrototype;
 			return El;
-		})(),
-		
+		})()
+	});
+
+	// Dagger.Controller
+	Dagger.extend(Dagger, {
+		Controller: (function() {
+			var controllerPrototype = {
+				// takes a string--'h1 p p'--and turns it into HTML.  TODO -- decide what the template language of DaggerJS will look like.
+				markup: function(markup) {
+					var elements = markup.split(/\s+/g);
+					for (var i = 0; i < elements.length; i++) {
+						this.el.append(Dagger.El(elements[i]));
+					}
+				}
+			};
+
+			return function(selector) {
+				selector = selector || 'body';
+				var Controller = function() {
+					this.el = Dagger._isEl(selector) ? selector : Dagger.El(selector, '', true);
+				};
+				Controller.prototype = controllerPrototype;
+				return new Controller();
+			};
+		})()
+	});
+	
+	// DaggerJS - Functions
+	Dagger.extend(Dagger, {
 		ajax: function(opts) {
 			var xmlHttp = new XMLHttpRequest();
 			xmlHttp.open(opts.type || 'GET', opts.url || opts, opts.async || true);
@@ -203,49 +285,11 @@ var Dagger = D = (function() {
 				return;
 			}
 			readyCallbacks.push([callback, context]);
-		}
-	};
+		},
+	});
 	
-	// = = = = = = = = = = = = = = = =   PRIVATE MEMBERS   = = = = = = = = = = = = = = = = //
-	var readyAlready = false;
-	var readyCallbacks = [];
-	
-	var _handleReady = function() {
-		if (document.readyState === 'interactive' || readyAlready) {
-			readyAlready = true;
-			while (readyCallbacks.length) {
-				var nextCallback = readyCallbacks.shift();
-				nextCallback[0](nextCallback[1]);
-			}
-		}
-	};
-	var _isDeferral = function(obj) {
-		return typeof obj === 'object' && _objectsMatch(Object.getPrototypeOf(obj), Dagger.Deferral.prototype);
-	};
-	var _isEl = function(obj) {
-		return typeof obj === 'object' && _objectsMatch(Object.getPrototypeOf(obj), Dagger.El.prototype);
-	};
-	var _isXMLHttpRequest = function(obj) {
-		return obj instanceof XMLHttpRequest;
-	};
-	
-	// = = = = = = = = = = = = = = = =   Helper Functions   = = = = = = = = = = = = = = = = //
-	var _arraysMatch = function(arr1, arr2) {
-		if (arr1.length !== arr2.length) return false;
-		for (var i = 0; i < arr1.length; i++) {
-			if (arr1[i] !== arr2[i]) return false;
-		}
-		return true;
-	};
-	var _objectsMatch = function(obj1, obj2) {
-		return typeof obj1 === 'object' && typeof obj2 === 'object' && _arraysMatch(Object.keys(obj1), Object.keys(obj2));
-	};
-	
-	
-	document.onreadystatechange = _handleReady;
-	
-	return Dagger;
-})();
+}).call(this);
+
 
 Dagger.ready(function() {
 	window.MainController = Dagger.Controller('body');
