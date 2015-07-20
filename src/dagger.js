@@ -1,9 +1,9 @@
 (function() {
-	var Dagger = function() {
-		return this; // for now...
+	var Dagger = function(selector) {
+		return Dagger.NodeList(selector);
 	};
 	
-	// Expose Dagger to the global object -- `module.exports` in node.js or `window` in a browser
+	// Expose Dagger to the appropriate object -- `module.exports` in node.js or `window` in a browser
 	if (typeof module === 'object' && typeof module.exports === 'object') {
 		module.exports = Dagger;
 	} else {
@@ -11,17 +11,17 @@
 	}
 	
 	
-	Dagger.version = 0.1;
+	Dagger._version = 0.1;
 	
 	
 	// = = = = = = = = = = = = = = = =   DaggerJS - Private Members   = = = = = = = = = = = = = = = = //
-	var readyAlready = false;
-	var readyCallbacks = [];
+	var _readyAlready = false;
+	var _readyCallbacks = [];
 	var _handleReady = function() {
-		if (document.readyState === 'interactive' || readyAlready) {
-			readyAlready = true;
-			while (readyCallbacks.length) {
-				var nextCallback = readyCallbacks.shift();
+		if (document.readyState === 'interactive' || _readyAlready) {
+			_readyAlready = true;
+			while (_readyCallbacks.length) {
+				var nextCallback = _readyCallbacks.shift();
 				nextCallback[0](nextCallback[1]);
 			}
 		}
@@ -42,31 +42,61 @@
 	
 	
 	
-	
+	// DaggerJS - Declare the extend function first so we can use it to add everything else
 	Dagger.extend = function(sourceObj, targetObj) {
 		if (!targetObj) {
 			return sourceObj;
 		}
-		for (var i = 0; i < Object.keys(targetObj).length; i++) {
-			sourceObj[Object.keys(targetObj)[i]] = targetObj[Object.keys(targetObj)[i]];
+		for (var key in targetObj) {
+			sourceObj[key] = targetObj[key];
 		}
 		return sourceObj;
-	}
+	};
 	
 	
-	// add underscoreJS-type data manipulation functions and public DaggerJS helper functions
+	// DaggerJS - Public Helper and Identifier Functions
 	Dagger.extend(Dagger, {
-		// = = = = = = = = = = = = = = = =   DaggerJS - Data Manipulation Functions   = = = = = = = = = = = = = = = = //
-		
-		
 		// = = = = = = = = = = = = = = = =   DaggerJS - Public Helper Functions   = = = = = = = = = = = = = = = = //
-		_isDeferral: function(obj) {
+		each: function(obj, callback, context) {
+			if (Dagger.isObject(obj)) {
+				var keys = Dagger.keys(obj);
+				for (var i = 0; i < keys.length; i++) {
+					callback.call(context, obj[keys[i]], keys[i], i, obj); // callback(val, key, index, obj)
+				}
+			} else if (Dagger.isArray(obj)) {
+				for (var i = 0; i < obj.length; i++) {
+					callback.call(context, obj[i], i, obj); // callback(val, index, arr)
+				}
+			} // No Ret
+		},
+		keys: function(obj) {
+			return Object.keys(obj); // Ret Type === Array
+		},
+		map: function(obj, callback, context) {
+			var result = [];
+			Dagger.each(obj, function(key, val, index, obj2) {
+				result.push(callback.call(context, key, val, index, obj2));
+			});
+			return result; // Ret Type === Array
+		},
+		values: function(obj) {
+			return Dagger.keys(obj).map(function(key) { return obj[key]; }); // Ret Type === Array
+		},
+		
+		// = = = = = = = = = = = = = = = =   DaggerJS - Public Identifier Functions   = = = = = = = = = = = = = = = = //
+		isArray: function(arr) {
+			return Array.isArray(arr);
+		},
+		isDeferral: function(obj) {
 			return typeof obj === 'object' && _objectsMatch(Object.getPrototypeOf(obj), Dagger.Deferral.prototype);
 		},
-		_isEl: function(obj) {
+		isEl: function(obj) {
 			return typeof obj === 'object' && _objectsMatch(Object.getPrototypeOf(obj), Dagger.El.prototype);
 		},
-		_isXMLHttpRequest: function(obj) {
+		isObject: function(obj) {
+			return typeof obj === 'object' && !Dagger.isArray(obj);
+		},
+		isXMLHttpRequest: function(obj) {
 			return obj instanceof XMLHttpRequest;
 		}
 	});
@@ -84,48 +114,51 @@
 		 */
 		Deferral: (function() {
 			var deferralPrototype = function() {
-				var privateMembers = this;
+				var private = this;
 				return {
 					both: function(callback) {
-						if (privateMembers.resolved) {
-							callback(privateMembers.result);
+						if (private.resolved) {
+							callback(private.result);
 							return this;
 						}
-						privateMembers.bothCallbacks.push(callback);
+						private.callbacks['both'] = private.callbacks['both'] || [];
+						private.callbacks['both'].push(callback);
 						return this;
 					},
 					no: function(callback) {
-						if (privateMembers.resolved && privateMembers.success === 'no') {
-							callback(privateMembers.result);
+						if (private.resolved && private.success === 'no') {
+							callback(private.result);
 							return this;
 						}
-						privateMembers.noCallbacks.push(callback);
+						private.callbacks['no'] = private.callbacks['no'] || [];
+						private.callbacks['no'].push(callback);
 						return this;
 					},
 					yes: function(callback) {
-						if (privateMembers.resolved && privateMembers.success === 'yes') {
-							callback(privateMembers.result);
+						if (private.resolved && private.success === 'yes') {
+							callback(private.result);
 							return this;
 						}
-						privateMembers.yesCallbacks.push(callback);
+						private.callbacks['yes'] = private.callbacks['yes'] || [];
+						private.callbacks['yes'].push(callback);
 						return this;
 					},
 
 					trigger: function(type, triggerData) {
-						privateMembers.resolved = true;
-						privateMembers.success = (type === 'no' ? 'no' : 'yes');
-						privateMembers.result = privateMembers.result || triggerData;
-						if (privateMembers.success === 'yes') {
-							while (privateMembers.yesCallbacks.length) {
-								privateMembers.yesCallbacks.shift()(privateMembers.result);
+						private.resolved = true;
+						private.success = (type === 'no' ? 'no' : 'yes');
+						private.result = private.result || triggerData;
+						if (private.success === 'yes') {
+							while (private.callbacks['yes'] && private.callbacks['yes'].length) {
+								private.callbacks['yes'].shift()(private.result);
 							}
 						} else {
-							while (privateMembers.noCallbacks.length) {
-								privateMembers.noCallbacks.shift()(privateMembers.result);
+							while (private.callbacks['no'] && private.callbacks['no'].length) {
+								private.callbacks['no'].shift()(private.result);
 							}
 						}
-						while (privateMembers.bothCallbacks.length) {
-							privateMembers.bothCallbacks.shift()(privateMembers.result);
+						while (private.callbacks['both'] && private.callbacks['both'].length) {
+							private.callbacks['both'].shift()(private.result);
 						}
 						return this;
 					}
@@ -135,18 +168,17 @@
 			var Deferral = function(obj) {
 				// = = = = = = = = = = = = = = = =   PRIVATE MEMBERS   = = = = = = = = = = = = = = = = //
 				var privateMembers = {
-					resolved: false, result: undefined, success: '',
-					noCallbacks: [], bothCallbacks: [], yesCallbacks: []
+					resolved: false, result: undefined, success: '', callbacks: {}
 				};
 				// = = = = = = = = = = = = = = = =   PUBLIC MEMBERS   = = = = = = = = = = = = = = = = //
 				var Deferral = function() {
 					var self = this;
-					if (Dagger._isXMLHttpRequest(obj)) {
+					if (Dagger.isXMLHttpRequest(obj)) {
 						obj.onload = function() {
 							self.trigger(this.status === 200 ? 'yes' : 'no', obj.response);
 						};
 						obj.send();
-					} else if (Dagger._isDeferral(obj)) {
+					} else if (Dagger.isDeferral(obj)) {
 						obj.yes(function(result) {
 							self.trigger('yes', result);
 						}).no(function(result) {
@@ -188,7 +220,10 @@
 					this.el.parentElement.insertBefore(elObj.el, this.el);
 					return this;
 				},
-				css: function() {
+				css: function(property, value) {
+					if (typeof property === 'object') {
+						
+					}
 					for (var i in this.style) {
 						this.el.style[i] = this.style[i];
 					}
@@ -232,7 +267,7 @@
 			};
 
 
-			var El = function(tagName, text, elExists) {
+			return function(tagName, text, elExists) {
 				var El = function() {
 					tagName && (this.tagName = tagName);
 					text && (this.txt = text);
@@ -242,8 +277,112 @@
 				El.prototype = elPrototype;
 				return new El();
 			};
-			El.prototype = elPrototype;
-			return El;
+		})()
+	});
+	
+	// Dagger.NodeList
+	Dagger.extend(Dagger, {
+		/**
+		 * The NodeList behaves very similar to a jQuery object, but is an actual array so you have access to all the normal array functions.
+		 */
+		NodeList: (function() {
+			var nodeListPrototype =  {
+				append: function(nodeList) {
+					_nodeLoop(this, nodeList, function(sourceNode, targetNode) {
+						sourceNode.appendChild(_toNodeList(targetNode).clone()[0]);
+					});
+					return this;
+				},
+				
+				clone: function(cloneChildren) {
+					if (!this.length) return Dagger.NodeList();
+					cloneChildren === false || (cloneChildren = true);
+					var clonedNode = this[0].cloneNode(cloneChildren);
+					clonedNode.eventHandlers = this[0].eventHandlers || {};
+					if (Object.keys(clonedNode.eventHandlers).length) {
+						Dagger.each(clonedNode.eventHandlers, function(eventName) {
+							_bindEvent.call(clonedNode, eventName);
+						});
+					}
+					return _toNodeList(clonedNode);
+				},
+				
+				html: function(html) {
+					if (!html) return this.length ? this[0].innerHTML : '';
+					_nodeLoop(this, function(node) {
+						node.innerHTML = html;
+					});
+					return this;
+				},
+
+				on: function(eventName, callback) {
+					_nodeLoop(this, function(node) {
+						!node.eventHandlers && (node.eventHandlers = {});
+						_bindEvent.call(node, eventName);
+						node.eventHandlers[eventName].push(callback);
+					});
+					return this;
+				},
+
+				prepend: function(nodeList) {
+					_nodeLoop(this, nodeList, function(sourceNode, targetNode) {
+						sourceNode.insertBefore(_toNodeList(targetNode).clone()[0], sourceNode.firstElementChild);
+					});
+					return this;
+				},
+				
+				text: function(text) {
+					if (!text) return this.length ? this[0].innerText : '';
+					_nodeLoop(this, function(node) {
+						node.innerText = text;
+					});
+					return this;
+				}
+			};
+			
+			// = = = = = = = = = = = = = = = =   NodeList - Private Members   = = = = = = = = = = = = = = = = //
+			var _bindEvent = function(eventName) {
+				if (!this['on' + eventName]) {
+					this['on' + eventName] = function(event) {
+						_triggerEventHandlers.call(this, eventName, event);
+					};
+					this.eventHandlers[eventName] = [];
+				}
+			};
+			var _nodeLoop = function(sourceList, targetList, callback) {
+				!callback && (callback = targetList) && (targetList = undefined);
+				sourceList = _toNodeList(sourceList);
+				targetList && (targetList = _toNodeList(targetList));
+				Dagger.each(sourceList, function(sourceNode) {
+					if (!targetList) {
+						callback.call(sourceList, sourceNode);
+					} else {
+						Dagger.each(targetList, function(targetNode) {
+							callback.call(sourceList, sourceNode, targetNode);
+						});
+					}
+				});
+			};
+			var _toNodeList = function(obj) {
+				if (Dagger.isArray(obj) && typeof obj.append) {
+					return obj;
+				} else if (obj instanceof HTMLElement) {
+					return Dagger.extend([obj], nodeListPrototype); // Turn the HTMLElement into a NodeList
+				} else {
+					throw new Error('DaggerJS Error: Parameter must be of type HTMLElement or Dagger.NodeList.');
+				}
+			};
+			var _triggerEventHandlers = function(eventName, event) {
+				Dagger.each(this.eventHandlers[eventName], function(handler) {
+					handler(event);
+				});
+			};
+			
+			return function(selector) {
+				var queryResult = selector ? [].slice.call(document.querySelectorAll(selector.toString())) : [];
+				Dagger.extend(queryResult, nodeListPrototype);
+				return queryResult;
+			};
 		})()
 	});
 
@@ -263,7 +402,7 @@
 			return function(selector) {
 				selector = selector || 'body';
 				var Controller = function() {
-					this.el = Dagger._isEl(selector) ? selector : Dagger.El(selector, '', true);
+					this.el = Dagger.isEl(selector) ? selector : Dagger.El(selector, '', true);
 				};
 				Controller.prototype = controllerPrototype;
 				return new Controller();
@@ -280,12 +419,12 @@
 		},
 
 		ready: function(callback, context) {
-			if (readyAlready) {
+			if (_readyAlready) {
 				callback(context);
 				return;
 			}
-			readyCallbacks.push([callback, context]);
-		},
+			_readyCallbacks.push([callback, context]);
+		}
 	});
 	
 }).call(this);
